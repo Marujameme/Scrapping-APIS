@@ -1,0 +1,138 @@
+# Instalar pacotes necessários, se ainda não estiverem instalados
+install.packages("httr")      # Para fazer requisições HTTP
+install.packages("jsonlite")   # Para trabalhar com JSON
+install.packages("stringr")    # Para manipulação de strings
+install.packages("tidyr")      # Para transformar dados em formato tidy
+install.packages("dplyr")      # Para manipulação de dados
+install.packages("tidyverse")  # Conjunto de pacotes para ciência de dados
+install.packages("lubridate")   # Para manipulação de datas
+install.packages("openxlsx")    # Para ler e escrever arquivos Excel
+install.packages("Microsoft365R") # Para interação com serviços Microsoft 365
+
+# Carregar pacotes necessários
+library(httr)
+library(jsonlite)
+library(stringr)
+library(tidyr)
+library(dplyr)
+library(tidyverse)
+library(lubridate)
+library(openxlsx)
+library(Microsoft365R)
+
+# Lista para guardar cada entrada da API
+lista <- list()
+
+# Ano utilizado para carregar a API
+ano <- "2024"
+
+# UF utilizadas para carregar na API (Unidades Federativas)
+UF <- c("SESI-AC", "SESI-AL", "SESI-AM", "SESI-AP", 
+        "SESI-BA", "SESI-CE", "SESI-DF", "SESI-ES", 
+        "SESI-GO", "SESI-MA", "SESI-MG", "SESI-MS", 
+        "SESI-MT", "SESI-PA", "SESI-PB", "SESI-PE", 
+        "SESI-PI", "SESI-PR", "SESI-RJ", "SESI-RN", 
+        "SESI-RO", "SESI-RR", "SESI-RS", "SESI-SC", 
+        "SESI-SE", "SESI-SP", "SESI-TO", "SESI-CN", 
+        "SESI-DN", 
+        "SENAI-AC", "SENAI-AL", "SENAI-AM", "SENAI-AP", 
+        "SENAI-BA", "SENAI-CE", "SENAI-DF", "SENAI-ES", 
+        "SENAI-GO", "SENAI-MA", "SENAI-MG", "SENAI-MS", 
+        "SENAI-MT", "SENAI-PA", "SENAI-PB", "SENAI-PE", 
+        "SENAI-PI", "SENAI-PR", "SENAI-RJ", "SENAI-RN", 
+        "SENAI-RO", "SENAI-RR", "SENAI-RS", "SENAI-SC", 
+        "SENAI-SE", "SENAI-SP", "SENAI-TO", "SENAI-CT", 
+        "SENAI-DN")
+
+# Loop para utilizar cada UF como variável e puxar os dados da API
+for (i in UF) {
+  
+  # Definir a entidade de entrada com base no formato da UF
+  if (str_starts(string = i, "SESI")) {
+    entidade <- "SESI"
+  } else {
+    entidade <- "SENAI"
+  }
+  
+  # Base da API
+  base <- 'https://sorsdn.sistemaindustria.com.br/api/Transparencia/Get?'
+  
+  # Montar a chamada da API com os parâmetros
+  call <- str_remove_all(paste(base, "entidade", "=", entidade, "&", "regional", "=", i, "&", "ano", "=", ano), " ")
+  
+  # Fazer a requisição GET
+  get_budget <- GET(call, type = "basic")
+  
+  # Obter o conteúdo da resposta como texto
+  get_budget_text <- content(get_budget, "text")
+  
+  # Converter o texto JSON em uma lista R
+  get_budget_json <- fromJSON(get_budget_text, flatten = TRUE)
+  
+  # Transformar a lista em um dataframe e expandir colunas
+  get_budget_df <- as.data.frame(get_budget_json) %>% unnest()
+  
+  # Criar identificadores para a UF
+  j <- which(UF == i)
+  j <- str_remove(str_remove(UF, "SESI-"), "SENAI-")[j]
+  
+  # Criar colunas de marcação de Entidade, UF e ano
+  get_budget_df <- get_budget_df %>% mutate(Entidade = rep(entidade, nrow(get_budget_df)),
+                                            UF = rep(j, nrow(get_budget_df)),
+                                            Ano_extracao = rep(ano, nrow(get_budget_df)))
+  
+  # Adicionar o dataframe na lista para guardar o resultado
+  lista <- append(lista, list(get_budget_df))
+}
+
+# Combinar a lista em um dataframe único
+dados <- bind_rows(lista)
+
+# Alterar a ordem das colunas para padronização
+dados <- dados %>% relocate(Entidade, UF, Ano_extracao, .before = DataPublicacao)
+dados <- dados %>% relocate(Periodo, .after = Legenda)
+dados <- dados %>% select(Entidade, UF, Ano_extracao, DataPublicacao, Tipo, IDItemTransp, 
+                          IDItemTranspSuperior, Nivel, NMItemTransp, ValorEstimada, ValorRealizada, ExecPerc, PesoPerc, Periodo)
+
+# Criar um vetor com os meses
+meses <- c("Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez")
+# Retira o vetor Periodo do data frame
+mes <- dados %>% pull(Periodo)
+# Formata a string para o mesmo formato do vetor meses
+mes <- str_remove(mes, "Jan - ")
+
+# Converter os meses para números
+mes_num <- match(mes, meses)
+
+# Criar a data correspondente ao primeiro dia do mês e depois usar 'ceiling_date' para obter o último dia
+data <- make_date(year = year(Sys.Date()), month = mes_num, day = 1)
+ultimo_dia <- ceiling_date(data, "month") - days(1)
+Data <- format(ultimo_dia, format = "%d/%m/%Y")
+
+# Data atual
+data_hoje <- Sys.Date()
+format(data_hoje, format = "%d/%m/%Y")
+Data_extracao <- rep(format(data_hoje, format = "%d/%m/%Y"), nrow(dados))
+
+# Adicionar colunas de Data e Data_extracao ao dataframe e retirar periodo
+dados <- dados %>% mutate(Data, Data_extracao) %>% select(-Periodo)
+
+# Remover apóstrofos e converter colunas numéricas
+dados$ValorRealizada <- as.numeric(gsub("'", "", dados$ValorRealizada))
+dados$ValorEstimada <- as.numeric(gsub("'", "", dados$ValorEstimada))
+dados$ExecPerc <- as.numeric(gsub("'", "", dados$ExecPerc))
+dados$PesoPerc <- as.numeric(gsub("'", "", dados$PesoPerc))
+
+# Formatando a DataPublicacao
+dados$DataPublicacao <- sub(" .*", "", dados$DataPublicacao)
+dados$DataPublicacao <- format(as.Date(dados$DataPublicacao, format = "%d/%m/%Y"), format = "%d/%m/%Y")
+
+# Limpar variáveis temporárias
+rm(get_budget)
+rm(get_budget_df)
+rm(get_budget_json)
+rm(lista)
+
+# Definir o diretório de trabalho e salvar os dados em um arquivo Excel
+setwd("C:/Users/e-andre.araujo/Downloads")
+write.xlsx(dados, "exec_orç.xlsx")

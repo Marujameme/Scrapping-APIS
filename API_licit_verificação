@@ -1,0 +1,84 @@
+library(httr)
+library(jsonlite)
+library(stringr)
+library(tidyr)
+library(dplyr)
+library(tidyverse)
+library(lubridate)
+library(openxlsx)
+library(Microsoft365R)
+library(purrr)
+
+#Lista para guardar cada entrada da API
+lista <- list()
+
+#Ano utilizado para carregar a API
+ano <- "2025"
+
+#UF utilizadas para carregar na API
+UF <- c("SESI-AC", "SESI-AL", "SESI-AM", "SESI-AP",
+        "SESI-BA", "SESI-CE", "SESI-DF", "SESI-ES",
+        "SESI-GO", "SESI-MA", "SESI-MG", "SESI-MS",
+        "SESI-MT", "SESI-PA", "SESI-PB", "SESI-PE",
+        "SESI-PI", "SESI-PR", "SESI-RJ", "SESI-RN",
+        "SESI-RO", "SESI-RR", "SESI-RS", "SESI-SC",
+        "SESI-SE", "SESI-SP", "SESI-TO", "SESI-CN",
+        "SESI-DN", 
+        "SENAI-AC", "SENAI-AL", "SENAI-AM", "SENAI-AP",
+        "SENAI-BA", "SENAI-CE", "SENAI-DF", "SENAI-ES",
+        "SENAI-GO", "SENAI-MA", "SENAI-MG", "SENAI-MS",
+        "SENAI-MT", "SENAI-PA", "SENAI-PB", "SENAI-PE",
+        "SENAI-PI", "SENAI-PR", "SENAI-RJ", "SENAI-RN",
+        "SENAI-RO", "SENAI-RR", "SENAI-RS", "SENAI-SC",
+        "SENAI-SE", "SENAI-SP", "SENAI-TO", "SENAI-CETIQT",
+        "SENAI-DN")
+
+
+#For para utilizar cada UF como variavel e requisitar os dados da API
+for (i in UF) {
+  
+  #IF para definir a entidade de entrada com base no formato da UF
+  if (str_starts(string = i, "SESI")) {
+    entidade <- "SESI"
+  }
+  else{
+    entidade <- "SENAI"
+  }
+  
+  # Carregando a base da API
+  base <- 'https://sistematransparenciaweb.com.br/api-licitacoes/publico/licitacoes?'
+  
+  # Juntando todas as variaveis para entrada na API
+  call <- str_remove_all(paste(base,"entidade", "=",entidade ,"&","departamento", "=",i,"&","ano", "=",ano), " ")  
+  
+  #Primeiro get
+  get_budget <- GET(call, type = "basic", timeout(300))
+  
+  #segundo get
+  get_budget_text <- content(get_budget, "text", encoding = "UTF-8")
+  
+  #terceiro get
+  get_budget_json <- fromJSON(get_budget_text, flatten = TRUE)
+  
+  #unnest para expandir as colunas do dataframe
+  get_budget_df <- as.data.frame(get_budget_json)
+  
+  j <- which(UF == i)
+  j <- str_remove(str_remove(UF, "SESI-"), "SENAI-")[j]
+  #criação de colunas de marcação de Entidade, UF e ano
+  get_budget_df <- get_budget_df %>% mutate(Entidade = rep(entidade, nrow(get_budget_df)),
+                                            UF = rep(j, nrow(get_budget_df)))
+  #Adiciona o dataframe na lista para guardar o resultado
+  lista <- append(lista, list(get_budget_df))
+}
+
+#verificando quais DRs não tem dados
+ufs_sem_dados <- UF[sapply(lista, function(df) nrow(df) == 0)]
+ufs_sem_dados
+
+#Combinar a lista em um dataframe unico
+dados <- lista %>%
+  keep(~ ncol(.x) == 27) %>% 
+  bind_rows()
+
+write.xlsx(dados, "Licitações_api_2024.xlsx")

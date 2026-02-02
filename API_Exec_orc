@@ -24,7 +24,7 @@ library(Microsoft365R)
 lista <- list()
 
 # Ano utilizado para carregar a API
-ano <- "2024"
+ano <- "2025"
 
 # UF utilizadas para carregar na API (Unidades Federativas)
 UF <- c("SESI-AC", "SESI-AL", "SESI-AM", "SESI-AP", 
@@ -105,7 +105,7 @@ mes <- str_remove(mes, "Jan - ")
 mes_num <- match(mes, meses)
 
 # Criar a data correspondente ao primeiro dia do mês e depois usar 'ceiling_date' para obter o último dia
-data <- make_date(year = year(Sys.Date()), month = mes_num, day = 1)
+data <- make_date(year = ano, month = mes_num, day = 1)
 ultimo_dia <- ceiling_date(data, "month") - days(1)
 Data <- format(ultimo_dia, format = "%d/%m/%Y")
 
